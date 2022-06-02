@@ -1,11 +1,6 @@
-## My Project
+## Scikit-learn ML processing jobs on AWS Graviton instances with AWS Batch
 
-TODO: Fill this README out!
-
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
+This repository contains a simple way to extend the default SageMaker container for SKLearn to be run via AWS Batch. This could be useful for those looking to leverage the power of Graviton2 instances, which are currently not avaialable for SageMaker instances. Graviton2, run on arm64 arch, can offer significant cost efficiencies compared to x86 arch based instances. Specifically, this demo uses the c6g instances to run a data processing task, typically compute intensive.
 
 ## Security
 
