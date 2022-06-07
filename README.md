@@ -6,20 +6,20 @@ This repository contains a simple way to extend the default SageMaker container 
 
 To get started with using this demo, please follow the steps below. Note that these steps are guidence, and we expect experts on SageMaker use to modify it for their use-case.
 
-1. Clone this repo locally
+1. Clone this repo locally and navigate to the repo directory from your terminal
 2. Create a new S3 bucket in your AWS Account
-3. Copy the builder code to the S3 bucket:
+3. Copy the builder code to the S3 bucket (replace BUCKET_NAME with the name of your S3 bucket):
 ```shell
-aws s3 cp --recursive codebuild/ s3://{bucket}/sagemaker-container/codebuild/
+aws s3 cp --recursive codebuild/ s3://BUCKET_NAME/sagemaker-container/codebuild/
 ```
 
-4. Copy the lambda invoke fn code to S3
+4. Copy the lambda invoke fn code to S3 (replace BUCKET_NAME with the name of your S3 bucket):
 ```shell
-aws s3 cp --recursive test/lambda_function.zip s3://{bucket}/code-repo/lambda/lambda_function.zip
+aws s3 cp --recursive test/lambda_function.zip s3://BUCKET_NAME/code-repo/lambda/lambda_function.zip
 ```
-5. Run this CloudFormation template in the repo
+5. Run this CloudFormation template in the repo (path to template: cfn/infrastructure.yaml)
 
-[Launch CloudFormation](https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-1#/stacks/new?stackName=codebuild-sklearn-aws-batch&templateURL=https://gitlab.aws.dev/ip/mlops/sagemaker-to-batch-processing/cfn/infrastructure.yaml)
+[Launch CloudFormation](https://console.aws.amazon.com/cloudformation/home?region=ap-southeast-1#/stacks/new?stackName=codebuild-sklearn-aws-batch&templateURL=https://github.com/aws-samples/aws-sagemaker-to-batch-processing/blob/main/cfn/infrastructure.yaml)
 
 6. Fill in the values according to the defaults suggested, or change it to your own. Do note that you need to specify the architecture under which you want to build the Batch proces (Arm64 or x86), and choose instance types appropriately.
 - [ ] DesiredVCPU = 1
