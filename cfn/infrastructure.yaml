@@ -1,0 +1,670 @@
+# 2021 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.  
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at  
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
+
+AWSTemplateFormatVersion: 2010-09-09
+Description: This Cloudformation Template Creates IAM, AWS Batch, Code Build and Lambda
+
+Parameters:
+## Mandatory Tags
+  SystemName:
+    Type: 'String'
+    Description: 'Used to identify individual resources / services/ application.'
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  Owner:
+    Type: 'String'
+    Description: 'Used to identify the group mail of service owner.'
+    AllowedPattern: '^[a-z0-9.-_@][a-z0-9.-_@]{1,61}[a-z0-9]$'
+  Platform:
+    Type: 'String'
+    Default: arm64
+    Description: 'Identify environment type. For services where platform not idenfiable mention not applicable. Eg -clinux_x86/ arm64 / windows/ not applicable'
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  Cloudtype:
+    Type: 'String'
+    Default: iaas
+    Description: 'Required to identify cloud type environment whether its IAAS/ PAAS/ SAAS. Eg- iaas/paas/saas'
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  Environment:
+    Type: 'String'
+    Default: dev
+    Description: 'An environment name where resources are created'
+    AllowedValues:
+      - prod
+      - dev 
+  # VPC Specific Parameters
+  SelectedVPCId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: 'The VPC to be used to run the Code Build exercise' 
+  SelectedSecurityGroupIds:
+    Type: 'AWS::EC2::SecurityGroup::Id'
+    Description: 'The VPC security group IDs, in the form sg-xxxxxxxx. The security groups must be for the same VPC as specified in the subnet.' 
+  SelectedSubnetId:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: 'The ID of the subnet in a VPC to which you would like to have a connectivity from your Code Build compute instance.'
+  
+  # Code Build parameters - Build ECR Image
+  ImbCodeBucket:
+    Type: 'String'
+    Description: 'Name of the bucket where Image builder code is stored' 
+  ImbCodeKey:
+    Type: 'String'
+    Default: sagemaker-container/codebuild/sklearn/
+    Description: 'S3 path (key) of the location where code is stored'  
+  ImbECRRepo:
+    Type: 'String'
+    Default: sagemaker-sklearn-extension-arm64-aws-batch
+    Description: 'Name of the ECR Repository that you want to write the build to' 
+  ImbType:
+    Type: 'String'
+    Default: 'ARM_CONTAINER'
+    Description: 'Either ARM_CONTAINER, or LINUX_CONTAINER'
+    AllowedValues:
+      - ARM_CONTAINER
+      - LINUX_CONTAINER
+  ImbAMI:
+    Type: 'String'
+    Default: 'aws/codebuild/amazonlinux2-aarch64-standard:2.0'
+    Description: 'the AMI ID to create the code build with. Choose appropriate one depending on Container Type'
+    AllowedValues:
+      - aws/codebuild/amazonlinux2-x86_64-standard:2.0
+      - aws/codebuild/amazonlinux2-x86_64-standard:3.0
+      - aws/codebuild/amazonlinux2-aarch64-standard:1.0
+      - aws/codebuild/amazonlinux2-aarch64-standard:2.0
+      - aws/codebuild/standard:4.0
+      - aws/codebuild/standard:5.0
+      - aws/codebuild/windows-base:2019-1.0
+  ImbBatchPlatformType:
+    Type: 'String'
+    Default: arm64
+    Description: 'Architecture platform for build - arm64 or x86 (AMD64)'
+    AllowedValues:
+      - arm64
+      - x86
+  ImbSklearnRepo:
+    Type: 'String'
+    Default: 'sagemaker-scikit-learn-container'
+    Description: 'The Github repo to clone to get base sklearn image details'
+  ImbSklearnVersion:
+    Type: 'String'
+    Default: '0.23-1'
+    Description: 'Sklearn version - Keep to default unless you know better.'
+
+  # Batch Specific Parameters
+  BatchInstanceFamily:
+    Type: 'String'
+    Default: 'c6g'
+    Description: 'The Family of instances with which to launch the compute instances.'
+    AllowedValues:
+      - c6g
+      - t4g
+      - m6g
+      - c6g.xlarge
+      - c6g.metal
+      - c6g.8xlarge
+      - c6g.12xlarge
+      - c6g.16xlarge
+      - c5
+      - m5
+  MaxVCPUs:
+    Type: 'Number'
+    Default: 32
+    Description: 'The maximum number of VCpus that should be launched under a single Compute env'
+    AllowedValues:
+      - 4
+      - 8
+      - 16
+      - 32
+      - 64
+      - 128  
+  DesiredVCPUs:
+    Type: 'Number'
+    Default: 4
+    Description: 'The desired number of VCpus that should be launched under a Batch Job definition.'
+  DesiredJobMemory:
+    Type: 'Number'
+    Default: 8000
+    Description: 'The desired amount of memory (in MB) to be allocated to the container running the task.'
+  MaximumTimeout:
+    Type: 'Number'
+    Default: 3600
+    Description: 'Time limit for the AWS Batch jobs (in seconds) - used to timeout long running jobs.'
+
+  #Lambda specific parameters
+  LambdaS3Bucket:
+    Type: 'String'
+    Description: 'The name of the S3 bucket which contains the code for the Lambda fn.'
+  LambdaS3Key:
+    Type: 'String'
+    Description: 'Define the key (path) to the lambda fn zip file, within the LambdaS3Bucket specified.'
+
+
+# Resources:
+Resources:
+  AWSServiceRoleForBatch:
+    Type: AWS::IAM::ServiceLinkedRole
+    Properties:
+      AWSServiceName: batch.amazonaws.com
+  AWSExecutionRoleForBatch:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: aws-execution-role-batch
+      Description: This Role is for AWS Batch to have execution role 
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ecs-tasks.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"   
+      ManagedPolicyArns: 
+        - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+      Policies:
+        - PolicyName: aws-custom-ec2-vpc-policies
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - ec2:CreateNetworkInterface
+                - ec2:DescribeNetworkInterfaces
+                - ec2:CreateNetworkInterfacePermission
+                - ec2:DeleteNetworkInterface
+                - ec2:DescribeVpcs
+                - ec2:DescribeSubnets
+                - ec2:DescribeSecurityGroups
+                Resource:
+                - "*"
+        - PolicyName: aws-custom-batch-describe-policies
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - batch:DescribeJobs
+                Resource:
+                - "*"
+        - PolicyName: aws-custom-s3-read-write-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - s3:GetObject
+                - s3:GetBucketLocation
+                - s3:ListBucket
+                - s3:GetBucketAcl
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+                - s3:GetBucketTagging
+                - s3:PutBucketTagging
+                - s3:GetBucketLogging
+                Resource:
+                - "*"
+      Tags:
+        - Key: systemname
+          Value: !Sub ${SystemName}
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: name
+          Value: execution-role-aws-batch
+        - Key: owner
+          Value: !Sub ${Owner}
+        - Key: platform
+          Value: !Sub ${Platform}
+        - Key: cloudtype
+          Value: !Sub ${Cloudtype}
+  
+  LambdaSubmitBatchJob:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: aws-lambda-aws-batch-submit-role
+      Description: This Role is for Lambda to submit AWS Batch jobs
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "lambda.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"   
+      ManagedPolicyArns: 
+        - "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        - "arn:aws:iam::aws:policy/AmazonVPCReadOnlyAccess"
+        - "arn:aws:iam::aws:policy/AmazonSageMakerFullAccess"
+      Policies:
+        - PolicyName: aws-custom-ec2-vpc-policies
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - ec2:CreateNetworkInterface
+                - ec2:DescribeNetworkInterfaces
+                - ec2:CreateNetworkInterfacePermission
+                - ec2:DeleteNetworkInterface
+                - ec2:DescribeVpcs
+                - ec2:DescribeSubnets
+                - ec2:DescribeSecurityGroups
+                Resource:
+                - "*"
+        - PolicyName: aws-custom-batch-describe-policies
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - batch:DescribeJobs
+                Resource:
+                - "*"
+        - PolicyName: aws-custom-iam-pass-role
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - iam:GetRole
+                - iam:ListRoles
+                - iam:ListRoleTags
+                - iam:UntagRole
+                - iam:TagRole
+                - iam:PutRolePermissionsBoundary
+                - iam:PutUserPermissionsBoundary
+                - iam:AttachRolePolicy
+                - iam:ListInstanceProfileTags
+                - iam:PutRolePolicy
+                - iam:AddRoleToInstanceProfile
+                - iam:ListInstanceProfilesForRole
+                - iam:PassRole
+                - iam:DetachRolePolicy
+                - iam:ListAttachedRolePolicies
+                - iam:PutUserPolicy
+                - iam:ListRolePolicies
+                - iam:UntagInstanceProfile
+                - iam:GetRolePolicy
+                - iam:PutGroupPolicy
+                - iam:TagInstanceProfile
+                Resource:
+                - arn:aws:iam::*:instance-profile/*
+                - arn:aws:iam::*:user/*
+                - arn:aws:iam::*:role/*
+                - arn:aws:iam::*:group/*
+        - PolicyName: aws-aws-batch-submit-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - batch:SubmitJob
+                - batch:TagResource
+                Resource:
+                - "arn:aws:batch:*:*:compute-environment/aws*"
+                - "arn:aws:batch:*:*:job-queue/aws*"
+                - "arn:aws:batch:*:*:job-definition/aws*"
+                - "arn:aws:batch:*:*:job/aws*"
+      Tags:
+        - Key: systemname
+          Value: !Sub ${SystemName}
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: name
+          Value: lambda-role-for-aws-batch-submit
+        - Key: owner
+          Value: !Sub ${Owner}
+        - Key: platform
+          Value: !Sub ${Platform}
+        - Key: cloudtype
+          Value: !Sub ${Cloudtype}
+
+  CodeBuildImageBuilderRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: aws-code-build-image-builder-ecr
+      Description: This Role is for CodeBuild to build an image and save to ECR
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "codebuild.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"   
+      ManagedPolicyArns: 
+        - "arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess"
+        - "arn:aws:iam::aws:policy/EC2InstanceProfileForImageBuilderECRContainerBuilds"
+        - "arn:aws:iam::aws:policy/AmazonVPCReadOnlyAccess"
+      Policies: 
+        - PolicyName: aws-custom-ec2-vpc-policies
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - ec2:CreateNetworkInterface
+                - ec2:DescribeNetworkInterfaces
+                - ec2:CreateNetworkInterfacePermission
+                - ec2:DeleteNetworkInterface
+                - ec2:DescribeVpcs
+                - ec2:DescribeSubnets
+                - ec2:DescribeSecurityGroups
+                Resource:
+                - "*"
+        - PolicyName: aws-code-build-s3-readonly-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - s3:GetObject
+                - s3:GetObjectVersion
+                - s3:GetBucketLocation
+                - s3:ListBucket
+                - s3:GetBucketAcl
+                - s3:GetBucketLocation
+                - s3:PutObject
+                Resource:
+                - "*"
+        - PolicyName: aws-code-build-base-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                - s3:ListBucket
+                - s3:GetBucketAcl
+                - s3:GetBucketLocation
+                - s3:PutObject
+                Resource:
+                - "arn:aws:logs:*:*:log-group:/aws/codebuild/aws*"
+              - Effect: Allow
+                Action:
+                  - codebuild:CreateReportGroup
+                  - codebuild:CreateReport
+                  - codebuild:UpdateReport
+                  - codebuild:BatchPutTestCases
+                  - codebuild:BatchPutCodeCoverages
+                Resource:
+                  - "arn:aws:codebuild:::report-group/aws*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketAcl
+                  - s3:GetBucketLocation
+                Resource:
+                  - "arn:aws:s3:::codepipeline-*"
+              - Effect: Allow
+                Action:
+                  - ec2:CreateNetworkInterface
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:CreateNetworkInterfacePermission
+                  - ec2:DeleteNetworkInterface
+                Resource:
+                  - "*"
+      Tags:
+        - Key: systemname
+          Value: !Sub ${SystemName}
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: name
+          Value: code-build-role-for-image-builder
+        - Key: owner
+          Value: !Sub ${Owner}
+        - Key: platform
+          Value: !Sub ${Platform}
+        - Key: cloudtype
+          Value: !Sub ${Cloudtype}
+  ECSExecutionRoleForBatch:
+    Type: AWS::IAM::Role
+    Properties: 
+      RoleName: aws-ecs-execution-role
+      Description: This Role is for EC2/ AWS Batch to have execution role on ECS spawned containers
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement: 
+          - Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"   
+      ManagedPolicyArns: 
+        - "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+      Tags:
+        - Key: systemname
+          Value: !Sub ${SystemName}
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: name
+          Value: ecs-execution-role
+        - Key: owner
+          Value: !Sub ${Owner}
+        - Key: platform
+          Value: !Sub ${Platform}
+        - Key: cloudtype
+          Value: !Sub ${Cloudtype}
+  ECRRepository: 
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Ref ImbECRRepo
+  CodeBuildArm64Project:
+    DependsOn:
+      - CodeBuildImageBuilderRole
+      - ECRRepository
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub aws-${Environment}-sklearn-aws-batch-codebuild-${ImbBatchPlatformType}
+      Description: CodeBuild project for creating the Docker container for Reranking job (SageMaker Sklearn) on Arm64
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-code-build-image-builder-ecr"
+      Artifacts:
+        Type: no_artifacts
+      Environment:
+        Type: !Ref ImbType
+        ComputeType: BUILD_GENERAL1_LARGE
+        Image: !Ref ImbAMI
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: repo
+          Type: PLAINTEXT
+          Value: !Ref ImbSklearnRepo
+        - Name: version
+          Type: PLAINTEXT
+          Value: !Ref ImbSklearnVersion
+        - Name: platform
+          Type: PLAINTEXT
+          Value: !Ref ImbBatchPlatformType
+        - Name: AWS_DEFAULT_REGION
+          Type: PLAINTEXT
+          Value: !Ref "AWS::Region"
+        - Name: AWS_ACCOUNT_ID
+          Type: PLAINTEXT
+          Value: !Ref "AWS::AccountId"
+        - Name: IMAGE_REPO_NAME
+          Type: PLAINTEXT
+          Value: !Ref ImbECRRepo
+        - Name: IMAGE_TAG
+          Type: PLAINTEXT
+          Value: latest
+      Source:
+        Location: !Sub ${ImbCodeBucket}/${ImbCodeKey}
+        Type: S3
+      TimeoutInMinutes: 240
+      LogsConfig:
+        CloudWatchLogs: 
+          Status: ENABLED
+        S3Logs: 
+          Status: DISABLED
+      Tags:
+        - Key: systemname
+          Value: !Sub ${SystemName}
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: name
+          Value: !Sub "aws-${Environment}-code-build-sklearn-aws-batch-${ImbBatchPlatformType}"
+        - Key: owner
+          Value: !Sub ${Owner}
+        - Key: platform
+          Value: !Sub ${Platform}
+        - Key: cloudtype
+          Value: !Sub ${Cloudtype}
+  BatchComputeEnvironment:
+    DependsOn:
+      - CodeBuildArm64Project
+      - AWSExecutionRoleForBatch
+      - AWSServiceRoleForBatch
+      - ECSExecutionRoleForBatch
+    Type: AWS::Batch::ComputeEnvironment
+    Properties:
+      Type: MANAGED
+      ComputeEnvironmentName: !Sub "aws-${Environment}-ec2-${ImbBatchPlatformType}-compute-env-od"
+      ComputeResources: 
+          AllocationStrategy: "BEST_FIT"
+          InstanceRole: !Sub "arn:aws:iam::${AWS::AccountId}:instance-profile/aws-ecs-execution-role"
+          DesiredvCpus: 0
+          InstanceTypes: 
+            - !Ref BatchInstanceFamily
+          MaxvCpus: !Ref MaxVCPUs
+          MinvCpus: 0
+          SecurityGroupIds: 
+            - !Ref SelectedSecurityGroupIds
+          Subnets: 
+            - !Ref SelectedSubnetId
+          Type: EC2
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/batch.amazonaws.com/AWSServiceRoleForBatch"
+      State: ENABLED
+      Tags:
+        systemname: !Sub ${SystemName}
+        environment: !Sub ${Environment}
+        name: !Sub "aws-${Environment}-aws-batch-${ImbBatchPlatformType}-compute-env-od"
+        owner: !Sub ${Owner}
+        platform: !Sub ${Platform}
+        cloudtype: !Sub ${Cloudtype}
+  BatchJobQueue:
+    DependsOn:
+      - BatchComputeEnvironment
+    Type: AWS::Batch::JobQueue
+    Properties: 
+      ComputeEnvironmentOrder: 
+        - ComputeEnvironment: !Sub "aws-${Environment}-ec2-${ImbBatchPlatformType}-compute-env-od"
+          Order: 1
+      JobQueueName: !Sub "aws-${Environment}-aws-batch-${ImbBatchPlatformType}-job-queue"
+      Priority: 1
+      State: ENABLED
+      Tags:
+        systemname: !Sub ${SystemName}
+        environment: !Sub ${Environment}
+        name: !Sub "aws-${Environment}-aws-batch-${ImbBatchPlatformType}-job-queue"
+        owner: !Sub ${Owner}
+        platform: !Sub ${Platform}
+        cloudtype: !Sub ${Cloudtype}
+  BatchJobDefinition:
+    DependsOn:
+      - BatchJobQueue
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: !Sub "aws-${Environment}-aws-batch-${ImbBatchPlatformType}-job-definition"
+      Timeout: 
+        AttemptDurationSeconds: !Ref MaximumTimeout
+      PropagateTags: false
+      RetryStrategy:
+        Attempts: 1
+      Parameters:
+        train-test-split: 0.2
+        validation-flag: True
+        env: !Ref Environment
+        entry-point: !Sub 's3://${ImbCodeBucket}/code-repo/sagemaker-process-code/sagemaker_entry_point.py'
+        input-bucket: !Sub '${ImbCodeBucket}'
+        code-bucket: !Sub '${ImbCodeBucket}'
+        output-bucket: !Sub '${ImbCodeBucket}'
+      ContainerProperties:
+        Privileged: true
+        Command:
+          - --train-test-split
+          - Ref::train-test-split
+          - --validation-flag
+          - Ref::validation-flag
+          - --env
+          - Ref::env
+          - --region
+          - Ref::region
+          - --input-bucket
+          - Ref::input-bucket
+          - --code-bucket
+          - Ref::code-bucket
+          - --output-bucket
+          - Ref::output-bucket
+          - --entry-point
+          - Ref::entry-point
+        Memory: !Ref DesiredJobMemory
+        ExecutionRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-execution-role-batch"
+        JobRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-execution-role-batch"
+        Vcpus: !Ref DesiredVCPUs
+        Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ImbECRRepo}"
+      Tags:
+        systemname: !Sub ${SystemName}
+        environment: !Sub ${Environment}
+        name: !Sub "aws-${Environment}-aws-batch-${ImbBatchPlatformType}-job-definition"
+        owner: !Sub ${Owner}
+        platform: !Sub ${Platform}
+        cloudtype: !Sub ${Cloudtype}
+  LambdaFunction1:
+    DependsOn:
+      - LambdaSubmitBatchJob
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "aws-${Environment}-process-reranking-run-awsbatch-job-trgr"
+      Code:
+        S3Bucket: !Ref LambdaS3Bucket
+        S3Key: !Ref LambdaS3Key
+      Handler: "lambda_function.lambda_handler"
+      Layers:
+        - arn:aws:lambda:ap-southeast-1:468957933125:layer:AWSLambda-Python37-SciPy1x:115
+      MemorySize: "128"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-lambda-aws-batch-submit-role"
+      Runtime: "python3.7"
+      Timeout: "900"
+      VpcConfig:
+        SecurityGroupIds: 
+          - !Ref SelectedSecurityGroupIds
+        SubnetIds: 
+          - !Ref SelectedSubnetId       
+      Environment:
+          Variables: 
+            dt_yyyymmdd: 0
+            platform: arm64
+      Tags:
+        - Key: systemname
+          Value: !Sub ${SystemName}
+        - Key: environment
+          Value: !Sub ${Environment}
+        - Key: name
+          Value: !Sub "aws-${Environment}-reranking-run-aws-batch-job-trgr"
+        - Key: owner
+          Value: !Sub ${Owner}
+        - Key: platform
+          Value: !Sub ${Platform}
+        - Key: cloudtype
+          Value: !Sub ${Cloudtype}
+  BatchInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref ECSExecutionRoleForBatch
+      InstanceProfileName: aws-ecs-execution-role

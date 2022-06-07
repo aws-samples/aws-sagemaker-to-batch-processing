@@ -1,0 +1,34 @@
+ARG version=1.0-1
+ARG platform=arm64
+ARG repo=sagemaker-scikit-learn-container
+
+FROM preprod-sklearn-extension:${version}-${platform}-cpu-py37
+
+ARG version
+ARG platform
+ARG repo
+
+ENV SAGEMAKER_SKLEARN_VERSION=${version}-${platform}
+
+## CUSTOM CODE FOR EACH IMPLEMENTATION OF FETCH AND RUN
+ENV PATH="/opt/ml/code:${PATH}"
+ENV SAGEMAKER_SUBMIT_DIRECTORY /opt/ml/code
+RUN python -m pip install --upgrade pip
+COPY ${repo}/docker/${version}-${platform}/aws-batch-extension/requirements.txt .
+RUN python -m pip --no-cache-dir install --upgrade -r requirements.txt && rm requirements.txt
+
+# this environment variable is used by the SageMaker PyTorch container to determine our user code directory.
+ENV SAGEMAKER_SUBMIT_DIRECTORY /opt/ml/code
+ENV SAGEMAKER_PROCESS_DIRECTORY /opt/ml/processing
+
+RUN mkdir -p /opt/ml/code/bin
+RUN mkdir -p /opt/ml/processing
+
+RUN echo "version=${version}, platform=${platform}, repo=${repo}"
+
+COPY ${repo}/docker/${version}-${platform}/aws-batch-extension/sagemaker_on_aws_batch.sh /opt/ml/code/bin/sagemaker_on_aws_batch.sh
+RUN chmod u+x /opt/ml/code/bin/sagemaker_on_aws_batch.sh
+
+WORKDIR /opt/ml/code
+
+ENTRYPOINT ["bash","/opt/ml/code/bin/sagemaker_on_aws_batch.sh"]

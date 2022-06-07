@@ -1,0 +1,57 @@
+ARG version=0.23-1
+ARG platform=arm64
+ARG repo=sagemaker-scikit-learn-container
+ARG ray_tag=ray-1.10.0
+ARG bazel_version=4.2.1
+
+FROM preprod-sklearn-extension:${version}-${platform}-cpu-py37
+
+ARG version
+ARG platform
+ARG repo
+ARG ray_tag
+ARG bazel_version
+
+### BUILDING RAY FROM SOURCE ####
+# install required c level libraries and compilers
+RUN apt update -y && \
+    apt install python3-dev -y && \
+    apt install libpython3.7-dev -y && \
+    apt-get update -y && apt-get upgrade && \
+    add-apt-repository ppa:ubuntu-toolchain-r/test && \
+    apt update -y && \
+    apt install gcc-9  g++-9 -y && \
+    apt -y install libstdc++6 && \
+    gcc --version && \
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 2 && \
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-7 1 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 2 && \
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-7 1
+
+# build ray from source
+RUN mkdir tmp_build && \
+    cd tmp_build && \
+    apt-get install -y build-essential curl unzip psmisc && \
+    python -m pip --no-cache-dir install cython==0.29.0 pytest && \
+    gcc --version && \
+    apt-get install sudo && \
+    curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash - && \
+    apt-get install nodejs -y && \
+    npm install -g @bazel/bazelisk && \
+    export USE_BAZEL_VERSION=4.2.1 && \
+    bazel --version && \
+    git clone https://github.com/ray-project/ray.git && cd ray && \
+    git checkout tags/${ray_tag} && \
+    echo "" >> .bazelrc && echo build --jobs 4 --local_ram_resources=HOST_RAM*0.5 >> .bazelrc && \
+    cd python && \
+    python setup.py bdist_wheel
+
+# install ray
+RUN ls && pwd && \
+    cd tmp_build && \
+    cd ray && \
+    git checkout tags/${ray_tag} && \
+    cd python && \
+    ls dist && \
+    python -m pip --no-cache-dir install --find-links=dist/ ray  && \
+    cd ../../.. && rm -rf tmp_build
