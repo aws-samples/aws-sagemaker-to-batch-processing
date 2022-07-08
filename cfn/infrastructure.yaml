@@ -602,8 +602,6 @@ Resources:
           - Ref::validation-flag
           - --env
           - Ref::env
-          - --region
-          - Ref::region
           - --input-bucket
           - Ref::input-bucket
           - --code-bucket

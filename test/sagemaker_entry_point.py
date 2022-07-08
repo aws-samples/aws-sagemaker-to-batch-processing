@@ -26,6 +26,14 @@ from datetime import datetime, timedelta
 import glob
 from pathlib import Path
 import pandas as pd
+from multiprocessing import Pool
+import multiprocessing
+import psutil
+import shutil
+import math
+import gc
+from functools import partial
+
 
 warnings.filterwarnings("ignore")
 
@@ -53,12 +61,22 @@ def run_data_processing(input_data_one,
     '''
     import utils
     import preprocess
+    import row_function_multiproc
+
     
     inital_start_time = time.time()
     
     # LOAD the FILES
     df = preprocess.read_input_data(input_data_one)
-    
+
+    df['id'] = df.index + 1
+    first_column = df.pop('id')
+    df.insert(0, 'id', first_column)
+
+    # normalizing wage
+    row_function_multiproc.multiproc_normalize_wage(df['id'], df)
+
+
     # Train test split
     train, test= preprocess.run_sklearn_train_test_split(df, test_size=train_test_split)
     if switch_validation_flag:
