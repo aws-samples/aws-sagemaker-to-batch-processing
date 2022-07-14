@@ -25,7 +25,7 @@ def normalizing_wage(n, df_full):
 
 
 def multiproc_normalize_wage(ids, df):
-    n_worker = 8
+    n_worker = psutil.cpu_count() - 1
 
     try:
         shutil.rmtree('tmp/tmp/')
