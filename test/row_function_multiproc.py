@@ -12,8 +12,8 @@ import glob
 
 def normalizing_wage_at_row_level(row, df):
     if row[6] == 0:
-        impute_wage = df.groupby(['sex','class of worker', 'race'])['wage per hour'].mean()
-        return impute_wage[row[13]][row[2]][row[11]]
+        impute_wage = df.groupby(['sex', 'education', 'class of worker','race'])['wage per hour'].mean()
+        return impute_wage[row[13]][row[5]][row[2]][row[11]]
     else:
         return row[6]
 
@@ -25,7 +25,7 @@ def normalizing_wage(n, df_full):
 
 
 def multiproc_normalize_wage(ids, df):
-    n_worker = psutil.cpu_count() - 1
+    n_worker = 8
 
     try:
         shutil.rmtree('tmp/tmp/')
