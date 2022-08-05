@@ -34,7 +34,7 @@ aws s3 cp test/lambda_function.zip s3://BUCKET_NAME/code-repo/lambda/lambda_func
 
 7. Create a SageMaker Notebook Instance, setting instance size to ml.t2.medium.
 8. Remember to set the sklearn version to 1.0-1 (which is the latest release as of writing) and py_version to p37.
-9. Run the test notebooks under ./test folder. The setup comes with a dummy dataset and preprocessing steps to illustrate the point, but is not the typical case where this solution will be useful. For more details on that, see next section
+9. Run the test notebooks under ./test folder. The setup comes with a dummy dataset consisting of 199523 rows and 44 columns of training data, and preprocessing steps to illustrate the point, but is not the typical case where this solution will be useful. For more details on that, see next section
 - For 01_Test:
     - Replace the bucket variable with the name of the S3 bucket created
     - For the role variable, create a new IAM role with S3FullAccess and SageMakerFullAccess. Copy the ARN for the role into the variable
